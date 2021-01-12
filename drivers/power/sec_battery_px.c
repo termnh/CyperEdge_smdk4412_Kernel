@@ -277,7 +277,7 @@ static void sec_set_charging(struct battery_data *battery, int charger_type)
 }
 #endif
 
-static enum alarmtimer_restart battery_event_alarm(struct alarm *alarm)
+static enum alarmtimer_restart battery_event_alarm(struct alarm *alarm, ktime_t now)
 {
 	struct battery_data *battery =
 			container_of(alarm, struct battery_data, alarm);
@@ -1726,7 +1726,7 @@ static void sec_bat_work(struct work_struct *work)
 	pr_debug("%s\n", __func__);
 
 	sec_bat_status_update(&battery->psy_battery);
-	get_monotonic_boottime(&battery->last_poll);
+	battery->last_poll = ktime_get_boottime();
 
 	/* prevent suspend before starting the alarm */
 	local_irq_save(flags);
@@ -1796,7 +1796,7 @@ static void sec_cable_changed(struct battery_data *battery)
 	 * because ac/usb status readings may lag from irq.
 	 */
 
-	get_monotonic_boottime(&battery->last_poll);
+	battery->last_poll = ktime_get_boottime();
 	sec_program_alarm(battery, FAST_POLL);
 }
 
@@ -2020,9 +2020,11 @@ static int sec_bat_read_proc(char *buf, char **start,
 {
 	struct battery_data *battery = data;
 	struct timespec cur_time;
+	ktime_t ktime;
 	int len = 0;
 
-	get_monotonic_boottime(&cur_time);
+	ktime = ktime_get_boottime();
+	cur_time = ktime_to_timespec(ktime);
 
 	len = sprintf(buf,
 		"%lu\t%u\t%u\t%u\t%u\t%u\t%u\t%d\t%d\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t0x%04x\t0x%04x\n",
@@ -2138,7 +2140,7 @@ static int __devinit sec_bat_probe(struct platform_device *pdev)
 
 	battery->padc = s3c_adc_register(pdev, NULL, NULL, 0);
 
-	get_monotonic_boottime(&battery->last_poll);
+	battery->last_poll = ktime_get_boottime();
 	alarm_init(&battery->alarm, ALARM_BOOTTIME,
 		battery_event_alarm);
 
