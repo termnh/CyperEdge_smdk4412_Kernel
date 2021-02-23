@@ -1426,85 +1426,97 @@ static int sr130pc20_s_parm(struct v4l2_subdev *sd,
 
 static int sr130pc20_g_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 {
-	struct sr130pc20_state *state = to_state(sd);
+struct sr130pc20_state *state = to_state(sd);
 	int err = 0;
 
-	if (!state->initialized) {
-		cam_err("%s: WARNING, camera not initialized\n", __func__);
+	if (!state->initialized && ctrl->id != V4L2_CID_CAMERA_SENSOR_MODE
+		&& ctrl->id != V4L2_CID_CAMERA_VT_MODE) {
+		cam_warn("%s: WARNING, camera not initialized. ID = %d(0x%X)\n",
+			__func__, ctrl->id - V4L2_CID_PRIVATE_BASE,
+			ctrl->id - V4L2_CID_PRIVATE_BASE);
 		return 0;
 	}
+
+	cam_dbg("%s: ID =%d, val = %d\n",
+		__func__, ctrl->id - V4L2_CID_PRIVATE_BASE, ctrl->value);
 
 	mutex_lock(&state->ctrl_lock);
 
 	switch (ctrl->id) {
-	case V4L2_CID_CAMERA_EXIF_EXPTIME:
-		if (state->sensor_mode == SENSOR_CAMERA)
-			ctrl->value = state->exif.exp_time_den;
-		else
-			ctrl->value = 24;
+	case V4L2_CID_CAMERA_SENSOR_MODE:
+		err = sr130pc20_set_sensor_mode(sd, ctrl->value);
 		break;
 
-	case V4L2_CID_CAMERA_EXIF_ISO:
-		if (state->sensor_mode == SENSOR_CAMERA)
-			ctrl->value = state->exif.iso;
-		else
-			ctrl->value = 100;
-		break;
-
-	case V4L2_CID_CAMERA_EXIF_FLASH:
-		if (state->sensor_mode == SENSOR_CAMERA)
-			ctrl->value = state->exif.flash;
-		else
-			sr130pc20_get_exif_flash(sd, (u16 *)ctrl->value);
-		break;
-
-#if !defined(CONFIG_CAM_YUV_CAPTURE)
-	case V4L2_CID_CAM_JPEG_MAIN_SIZE:
-		ctrl->value = state->jpeg.main_size;
-		break;
-
-	case V4L2_CID_CAM_JPEG_MAIN_OFFSET:
-		ctrl->value = state->jpeg.main_offset;
-		break;
-
-	case V4L2_CID_CAM_JPEG_THUMB_SIZE:
-		ctrl->value = state->jpeg.thumb_size;
-		break;
-
-	case V4L2_CID_CAM_JPEG_THUMB_OFFSET:
-		ctrl->value = state->jpeg.thumb_offset;
-		break;
-
-	case V4L2_CID_CAM_JPEG_QUALITY:
-		ctrl->value = state->jpeg.quality;
-		break;
-
-	case V4L2_CID_CAM_JPEG_MEMSIZE:
-		ctrl->value = SENSOR_JPEG_SNAPSHOT_MEMSIZE;
-		break;
-#endif
-
-	case V4L2_CID_CAMERA_AUTO_FOCUS_RESULT:
-		ctrl->value = state->focus.status;
+	case V4L2_CID_CAMERA_BRIGHTNESS:
+		err = sr130pc20_set_exposure(sd, ctrl->value);
 		break;
 
 	case V4L2_CID_CAMERA_WHITE_BALANCE:
+		err = sr130pc20_set_from_table(sd, "white balance",
+			state->regs->white_balance,
+			ARRAY_SIZE(state->regs->white_balance), ctrl->value);
+		state->wb.mode = ctrl->value;
+		break;
+
 	case V4L2_CID_CAMERA_EFFECT:
+		err = sr130pc20_set_from_table(sd, "effects",
+			state->regs->effect,
+			ARRAY_SIZE(state->regs->effect), ctrl->value);
+		break;
+
+	case V4L2_CID_CAMERA_METERING:
+		err = sr130pc20_set_from_table(sd, "metering",
+			state->regs->metering,
+			ARRAY_SIZE(state->regs->metering), ctrl->value);
+		break;
+
+	case V4L2_CID_CAMERA_SCENE_MODE:
+		err = sr130pc20_set_scene_mode(sd, ctrl->value);
+		break;
+
+	case V4L2_CID_CAMERA_CHECK_ESD:
+		err = sr130pc20_check_esd(sd, ctrl->value);
+		break;
+
+	case V4L2_CID_CAMERA_ISO:
+		err = sr130pc20_set_iso(sd, ctrl->value);
+		break;
+
+	case V4L2_CID_CAMERA_CAPTURE_MODE:
+		if (RUNMODE_RUNNING == state->runmode)
+			state->capture.pre_req = ctrl->value;
+		break;
+
+	case V4L2_CID_CAMERA_VT_MODE:
+		err = sr130pc20_set_vt_mode(sd, ctrl->value);
+		break;
+
+	case V4L2_CID_CAMERA_ANTI_BANDING:
+		break;
+
+	case V4L2_CID_CAMERA_OBJECT_POSITION_X:
+	case V4L2_CID_CAMERA_OBJECT_POSITION_Y:
+	case V4L2_CID_CAMERA_TOUCH_AF_START_STOP:
+	case V4L2_CID_CAMERA_FOCUS_MODE:
+	case V4L2_CID_CAMERA_SET_AUTO_FOCUS:
+	case V4L2_CID_CAMERA_FLASH_MODE:
 	case V4L2_CID_CAMERA_CONTRAST:
 	case V4L2_CID_CAMERA_SATURATION:
 	case V4L2_CID_CAMERA_SHARPNESS:
-	case V4L2_CID_CAMERA_OBJ_TRACKING_STATUS:
-	case V4L2_CID_CAMERA_SMART_AUTO_STATUS:
+	case V4L2_CID_CAMERA_FRAME_RATE:
+	case V4L2_CID_CAMERA_AE_LOCK_UNLOCK:
+	case V4L2_CID_CAMERA_AWB_LOCK_UNLOCK:
 	default:
 		cam_err("%s: WARNING, unknown Ctrl-ID 0x%x\n",
-					__func__, ctrl->id);
-		err = 0; /* we return no error. */
+			__func__, ctrl->id);
+		/* we return no error. */
 		break;
 	}
 
 	mutex_unlock(&state->ctrl_lock);
+	CHECK_ERR_MSG(err, "g_ctrl failed %d\n", err)
 
-	return err;
+	return 0;
 }
 
 static int sr130pc20_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
