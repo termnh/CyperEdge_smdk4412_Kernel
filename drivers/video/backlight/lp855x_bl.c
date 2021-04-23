@@ -17,8 +17,9 @@
 #include <linux/delay.h>
 #include <linux/gpio.h>
 #include <linux/platform_data/lp855x.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_FB
+#include <linux/fb.h>
+#include <linux/notifier.h>
 #endif
 
 /* Registers */
@@ -47,8 +48,9 @@ struct lp855x {
 	struct mutex xfer_lock;
 	struct lp855x_platform_data *pdata;
 	int enabled;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend early_suspend;
+#ifdef CONFIG_FB
+	struct notifier_block fb_notif;
+	bool fb_suspended;
 #endif
 };
 
@@ -321,27 +323,55 @@ static int lp855x_config(struct lp855x *lp)
 }
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void lp855x_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_FB
+static void lp855x_fb_suspend(struct lp855x *lp)
 {
-	struct lp855x *lp =
-		container_of(h, struct lp855x, early_suspend);
+    if (lp->fb_suspended)
+        return;
 
 	lp855x_set_power(lp, 0);
+	lp->fb_suspended = true;
 }
 
-static void lp855x_late_resume(struct early_suspend *h)
+static void lp855x_fb_resume(struct lp855x *lp)
 {
-	struct lp855x *lp =
-		container_of(h, struct lp855x, early_suspend);
+	if (!lp->fb_suspended)
+        return;
 
 	lp855x_set_power(lp, 1);
 	backlight_update_status(lp->bl);
 #if defined(CONFIG_MACH_KONA)
 	lp855x_config(lp);
 #endif
-
+    lp->fb_suspended = false;
 }
+
+static int fb_notifier_callback(struct notifier_block *self,
+				unsigned long event, void *data)
+{
+	struct fb_event *evdata = data;
+	int *blank;
+	struct lp855x *info = container_of(self, struct lp855x, fb_notif);
+ 	if (evdata && evdata->data && info) {
+		if (event == FB_EVENT_BLANK) {
+			blank = evdata->data;
+			switch (*blank) {
+				case FB_BLANK_UNBLANK:
+				case FB_BLANK_NORMAL:
+				case FB_BLANK_VSYNC_SUSPEND:
+				case FB_BLANK_HSYNC_SUSPEND:
+					lp855x_fb_resume(info);
+					break;
+				default:
+				case FB_BLANK_POWERDOWN:
+					lp855x_fb_suspend(info);
+					break;
+			}
+		}
+	}
+ 	return 0;
+}
+
 #endif
 
 static int lp855x_probe(struct i2c_client *cl, const struct i2c_device_id *id)
@@ -381,13 +411,11 @@ static int lp855x_probe(struct i2c_client *cl, const struct i2c_device_id *id)
 	}
 
 	lp->enabled = 1;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	if (lp->pdata->use_gpio_en) {
-		lp->early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB - 2;
-		lp->early_suspend.suspend = lp855x_early_suspend;
-		lp->early_suspend.resume = lp855x_late_resume;
-		register_early_suspend(&lp->early_suspend);
-	}
+
+#ifdef CONFIG_FB
+	lp->fb_suspended = false;
+	lp->fb_notif.notifier_call = fb_notifier_callback;
+	fb_register_client(&lp->fb_notif);
 #endif
 
 	ret = lp855x_backlight_register(lp);
