@@ -393,6 +393,8 @@ struct wacom_g5_platform_data {
 };
 
 #define SHORT_PRESS_TIME 0
+#define SHORT_PRESS_DOUBLED 200
+#define BREAK_TIME 200
 #define LONG_PRESS_TIME 1000
 #define MIN_GEST_DIST 3000
 
@@ -472,6 +474,7 @@ struct wacom_i2c {
 	int gesture_start_x;
 	int gesture_start_y;
 	ktime_t gesture_start_time;
+	ktime_t gesture_old_end_time;
 };
 
 #endif /* _LINUX_WACOM_I2C_H */

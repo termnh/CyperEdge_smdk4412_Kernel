@@ -837,6 +837,7 @@ static void handle_gestures(int x, int y, ktime_t end, struct wacom_i2c *wac_i2c
 	int dx = x - wac_i2c->gesture_start_x;
 	int dy = y - wac_i2c->gesture_start_y;
 	int dt = ktime_to_ms(ktime_sub(end, wac_i2c->gesture_start_time));
+	int dtb = ktime_to_ms(ktime_sub(wac_i2c->gesture_start_time, wac_i2c->gesture_old_end_time));
 
 	if (abs(dy) > abs(dx)) {
 		if (abs(dy) > MIN_GEST_DIST) {
@@ -850,17 +851,20 @@ static void handle_gestures(int x, int y, ktime_t end, struct wacom_i2c *wac_i2c
 			return;
 		}
 	}
-    if ((dt >= SHORT_PRESS_TIME) && (dt < LONG_PRESS_TIME)) {
-        printk(KERN_DEBUG "[E-PEN] short pressed!\n");
+    if ((dt >= SHORT_PRESS_TIME) && (dt < SHORT_PRESS_DOUBLED) && (dtb <= BREAK_TIME) && (dtb > 0)) {
+        printk(KERN_DEBUG "[E-PEN] double short pressed, send back event!\n");
 	    input_report_key(wac_i2c->input_dev,
 		    KEY_BACK, 1);
 	    input_report_key(wac_i2c->input_dev,
 		    KEY_BACK, 0);
 	    input_sync(wac_i2c->input_dev);
-        wac_i2c->gesture_key = KEY_PEN_SP;
         return;
     }
-
+    else if ((dt >= SHORT_PRESS_DOUBLED) && (dt < LONG_PRESS_TIME))
+    {
+        printk(KERN_DEBUG "[E-PEN] short pressed!\n");
+        wac_i2c->gesture_key = KEY_PEN_SP;
+    }
 	else if (dt >= LONG_PRESS_TIME) {
 		wac_i2c->gesture_key = KEY_PEN_LP;
 		return;
@@ -879,6 +883,8 @@ int wacom_i2c_coord(struct wacom_i2c *wac_i2c)
 	u8 gain = 0;
 	u8 height = 0;
 	int aveStrength = 2;
+	ktime_t time;
+
 #ifdef WACOM_USE_SOFTKEY
 	static s16 softkey, pressed, keycode;
 #endif
@@ -1052,7 +1058,9 @@ int wacom_i2c_coord(struct wacom_i2c *wac_i2c)
 				wac_i2c->gesture_start_time = ktime_get();
 			} else if (!stylus && wac_i2c->side_pressed) {
 				printk(KERN_DEBUG "[E-PEN] side off\n");
-				handle_gestures(x, y, ktime_get(), wac_i2c);
+				time = ktime_get();
+				handle_gestures(x, y, time, wac_i2c);
+				wac_i2c->gesture_old_end_time = time;
 				if (wac_i2c->gesture_key > -1 &&
 						(wac_i2c->enabled_gestures &
 						(1 << (wac_i2c->gesture_key - 0x2f1)))) {
