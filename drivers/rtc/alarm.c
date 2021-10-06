@@ -21,7 +21,7 @@
 #include <linux/rtc.h>
 #include <linux/sched.h>
 #include <linux/spinlock.h>
-#include <linux/wakelock.h>
+#include <linux/sysdev.h>
 
 #define ALARM_DELTA 120
 #define ANDROID_ALARM_PRINT_ERROR (1U << 0)
@@ -64,7 +64,7 @@ static struct rtc_device *alarm_rtc_dev;
 static DEFINE_SPINLOCK(alarm_slock);
 static DEFINE_MUTEX(alarm_setrtc_mutex);
 static DEFINE_MUTEX(power_on_alarm_mutex);
-static struct wake_lock alarm_rtc_wake_lock;
+static struct wakeup_source alarm_rtc_wake_lock;
 static struct platform_device *alarm_platform_dev;
 struct alarm_queue alarms[ANDROID_ALARM_TYPE_COUNT];
 static bool suspended;
@@ -105,7 +105,7 @@ static void update_timer_locked(struct alarm_queue *base, bool head_removed)
 	}
 
 	if (is_wakeup && !suspended && head_removed)
-		wake_unlock(&alarm_rtc_wake_lock);
+		__pm_relax(&alarm_rtc_wake_lock);
 
 	if (!base->first)
 		return;
@@ -117,7 +117,7 @@ static void update_timer_locked(struct alarm_queue *base, bool head_removed)
 
 	if (is_wakeup && suspended) {
 		pr_alarm(FLOW, "changed alarm while suspened\n");
-		wake_lock_timeout(&alarm_rtc_wake_lock, 1 * HZ);
+		__pm_wakeup_event(&alarm_rtc_wake_lock, 1 * HZ);
 		return;
 	}
 
@@ -286,7 +286,7 @@ int alarm_set_rtc(struct timespec new_time)
 
 	mutex_lock(&alarm_setrtc_mutex);
 	spin_lock_irqsave(&alarm_slock, flags);
-	wake_lock(&alarm_rtc_wake_lock);
+	__pm_stay_awake(&alarm_rtc_wake_lock);
 	getnstimeofday(&tmp_time);
 	for (i = 0; i < ANDROID_ALARM_SYSTEMTIME; i++) {
 		hrtimer_try_to_cancel(&alarms[i].timer);
@@ -319,7 +319,7 @@ int alarm_set_rtc(struct timespec new_time)
 		pr_alarm(ERROR, "alarm_set_rtc: "
 			"Failed to set RTC, time will be lost on reboot\n");
 err:
-	wake_unlock(&alarm_rtc_wake_lock);
+	__pm_relax(&alarm_rtc_wake_lock);
 	mutex_unlock(&alarm_setrtc_mutex);
 	return ret;
 }
@@ -491,7 +491,7 @@ static void alarm_triggered_func(void *p)
 	if (!(rtc->irq_data & RTC_AF))
 		return;
 	pr_alarm(INT, "rtc alarm triggered\n");
-	wake_lock_timeout(&alarm_rtc_wake_lock, 1 * HZ);
+	__pm_wakeup_event(&alarm_rtc_wake_lock, 1 * HZ);
 }
 
 static int alarm_suspend(struct platform_device *pdev, pm_message_t state)
@@ -564,7 +564,7 @@ static int alarm_suspend(struct platform_device *pdev, pm_message_t state)
 
 			spin_lock_irqsave(&alarm_slock, flags);
 			suspended = false;
-			wake_lock_timeout(&alarm_rtc_wake_lock, 2 * HZ);
+			__pm_wakeup_event(&alarm_rtc_wake_lock, 2 * HZ);
 			update_timer_locked(&alarms[ANDROID_ALARM_RTC_WAKEUP],
 									false);
 			update_timer_locked(&alarms[
@@ -751,7 +751,7 @@ static int __init alarm_driver_init(void)
 	err = platform_driver_register(&alarm_driver);
 	if (err < 0)
 		goto err1;
-	wake_lock_init(&alarm_rtc_wake_lock, WAKE_LOCK_SUSPEND, "alarm_rtc");
+	wakeup_source_init(&alarm_rtc_wake_lock, WAKE_LOCK_SUSPEND, "alarm_rtc");
 	rtc_alarm_interface.class = rtc_class;
 	err = class_interface_register(&rtc_alarm_interface);
 	if (err < 0)
@@ -760,7 +760,7 @@ static int __init alarm_driver_init(void)
 	return 0;
 
 err2:
-	wake_lock_destroy(&alarm_rtc_wake_lock);
+	wakeup_source_trash(&alarm_rtc_wake_lock);
 	platform_driver_unregister(&alarm_driver);
 err1:
 	return err;
@@ -769,7 +769,7 @@ err1:
 static void  __exit alarm_exit(void)
 {
 	class_interface_unregister(&rtc_alarm_interface);
-	wake_lock_destroy(&alarm_rtc_wake_lock);
+	wakeup_source_trash(&alarm_rtc_wake_lock);
 	platform_driver_unregister(&alarm_driver);
 }
 
