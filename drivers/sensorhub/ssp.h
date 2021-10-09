@@ -24,7 +24,10 @@
 #include <linux/interrupt.h>
 #include <linux/workqueue.h>
 #include <linux/gpio.h>
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_FB
+#include <linux/fb.h>
+#include <linux/notifier.h>
+#endif
 #include <linux/wakelock.h>
 #include <linux/miscdevice.h>
 #include <linux/ssp_platformdata.h>
@@ -289,8 +292,9 @@ struct ssp_data {
 	void (*report_sensor_data[SENSOR_MAX])(struct ssp_data *,
 		struct sensor_value *);
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend early_suspend;
+#ifdef CONFIG_FB
+	struct notifier_block fb_notif;
+	bool fb_suspended;
 #endif
 
 #ifdef CONFIG_SENSORS_SSP_SENSORHUB
