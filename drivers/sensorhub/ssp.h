@@ -28,7 +28,6 @@
 #include <linux/fb.h>
 #include <linux/notifier.h>
 #endif
-#include <linux/wakelock.h>
 #include <linux/miscdevice.h>
 #include <linux/ssp_platformdata.h>
 #include <linux/delay.h>
@@ -235,7 +234,7 @@ struct ssp_data {
 	struct device *light_device;
 
 	struct i2c_client *client;
-	struct wake_lock ssp_wake_lock;
+	struct wakeup_source ssp_wake_lock;
 	struct miscdevice akmd_device;
 	struct timer_list debug_timer;
 	struct workqueue_struct *debug_wq;
