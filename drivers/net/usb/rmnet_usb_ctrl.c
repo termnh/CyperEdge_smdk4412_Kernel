@@ -405,7 +405,7 @@ static void resp_avail_cb(struct urb *urb)
 	spin_unlock(&dev->rx_lock);
 
 	wake_up(&dev->read_wait_queue);
-	__pm_wakeup_event(&dev->ctrl_wake, msecs_to_jiffies(500));
+	__pm_wakeup_event(&dev->ctrl_wake, 500);
 
 	if (urb->status == -ENOENT)
 		return;
