@@ -14,7 +14,8 @@
 #include <linux/switch.h>
 #include <linux/wakelock.h>
 #include <plat/adc.h>
-#include <linux/earlysuspend.h>
+#include <linux/fb.h>
+#include <linux/notifier.h>
 #include <linux/power_supply.h>
 
 #include <asm/irq.h>
@@ -80,7 +81,12 @@ struct acc_con_info {
 	int mhl_irq;
 	bool mhl_pwr_state;
 #endif
-	struct early_suspend early_suspend;
+
+#ifdef CONFIG_FB
+	struct notifier_block fb_notif;
+	bool fb_suspended;
+#endif
+
 	struct delayed_work acc_con_work;
 	struct mutex lock;
 };
