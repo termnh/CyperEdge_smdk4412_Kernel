@@ -284,7 +284,7 @@ static int synaptics_ts_set_func_info(struct synaptics_drv_data *data)
 				SET_FUNC_ADDR(1a, i);
 				break;
 #endif
-				
+
 			case 0x34:
 				SET_FUNC_ADDR(34, i);
 				break;
@@ -390,12 +390,12 @@ static int synaptics_ts_set_func(struct synaptics_drv_data *data)
 	int i = 0;
 	int retry_count = 10;
 	int ret = 0;
-	
+
 	printk(KERN_DEBUG "[TSP] %s\n", __func__);
-	
+
 	while(retry_count--) {
 		ret = synaptics_ts_set_func_info(data);
-		
+
 		if (ret) {
 			pr_err("[TSP] failed to get function info retry_count = %d \n",retry_count);
 			continue;
@@ -403,7 +403,7 @@ static int synaptics_ts_set_func(struct synaptics_drv_data *data)
 			break;
 		}
 	}
-	
+
 	if (ret) {
 		pr_err("[TSP] failed to get function info.\n");
 		forced_fw_update(data);
@@ -694,7 +694,7 @@ static void synaptics_ts_read_points(struct synaptics_drv_data *data,
             data->finger[id].angle = angle;
             data->finger[id].width = surface_data[0];
 #endif
-	    
+
 			data->finger[id].z = buf.z;
 			if (data->finger[id].z) {
 				if (MT_STATUS_INACTIVE ==
@@ -837,17 +837,18 @@ static irqreturn_t synaptics_ts_irq_handler(int irq, void *_data)
 	return IRQ_HANDLED;
 }
 
-#if defined(CONFIG_HAS_EARLYSUSPEND)
-static void synaptics_ts_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_FB
+static void synaptics_ts_fb_suspend(struct synaptics_drv_data *data)
 {
-	struct synaptics_drv_data *data =
-		container_of(h, struct synaptics_drv_data, early_suspend);
+	if (data->fb_suspended)
+        		return;
+
 #if defined(CONFIG_MACH_KONA)
 	disable_irq(data->client->irq);
 	forced_release_fingers(data);
-	if (!wake_lock_active(&data->wakelock)) {
-		data->pdata->set_power(0);
-	}	
+
+	data->pdata->set_power(0);
+
 #else
 	printk(KERN_DEBUG "[TSP] %s\n", __func__);
 	cancel_delayed_work_sync(&data->resume_dwork);
@@ -855,19 +856,20 @@ static void synaptics_ts_early_suspend(struct early_suspend *h)
 	if (!data->suspend) {
 		disable_irq(data->client->irq);
 		forced_release_fingers(data);
-		if (!wake_lock_active(&data->wakelock)) {
-			data->pdata->set_power(0);
-			data->suspend = true;
-		}
+
+		data->pdata->set_power(0);
+		data->suspend = true;
+
 	}
 	mutex_unlock(&data->mutex);
 #endif
+data->fb_suspended = true;
 }
 
-static void synaptics_ts_late_resume(struct early_suspend *h)
+static void synaptics_ts_fb_resume(struct synaptics_drv_data *data)
 {
-	struct synaptics_drv_data *data =
-		container_of(h, struct synaptics_drv_data, early_suspend);
+	if (!data->fb_suspended)
+            		return;
 
 	printk(KERN_DEBUG "[TSP] %s\n", __func__);
 
@@ -885,6 +887,33 @@ static void synaptics_ts_late_resume(struct early_suspend *h)
 
 	schedule_delayed_work(&data->resume_dwork, HZ / 10);
 #endif
+data->fb_suspended = false;
+}
+
+static int fb_notifier_callback(struct notifier_block *self,
+				unsigned long event, void *data)
+{
+	struct fb_event *evdata = data;
+	int *blank;
+	struct synaptics_drv_data *info = container_of(self, struct synaptics_drv_data, fb_notif);
+ 	if (evdata && evdata->data && info) {
+		if (event == FB_EVENT_BLANK) {
+			blank = evdata->data;
+			switch (*blank) {
+				case FB_BLANK_UNBLANK:
+				case FB_BLANK_NORMAL:
+				case FB_BLANK_VSYNC_SUSPEND:
+				case FB_BLANK_HSYNC_SUSPEND:
+					synaptics_ts_fb_resume(info);
+					break;
+				default:
+				case FB_BLANK_POWERDOWN:
+					synaptics_ts_fb_suspend(info);
+					break;
+			}
+		}
+	}
+ 	return 0;
 }
 #endif
 
@@ -902,11 +931,10 @@ static void init_function_data_dwork(struct work_struct *work)
 		return ;
 	}
 
-#if defined(CONFIG_HAS_EARLYSUSPEND)
-	data->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	data->early_suspend.suspend = synaptics_ts_early_suspend;
-	data->early_suspend.resume = synaptics_ts_late_resume;
-	register_early_suspend(&data->early_suspend);
+#ifdef CONFIG_FB
+	data->fb_suspended = false;
+	data->fb_notif.notifier_call = fb_notifier_callback;
+	fb_register_client(&data->fb_notif);
 #endif
 
 #if defined(CONFIG_SEC_TOUCHSCREEN_DVFS_LOCK)
@@ -981,7 +1009,7 @@ static void synaptics_reset_ts_dwork(struct work_struct *work)
 	struct synaptics_drv_data *data =
 		container_of(work, struct synaptics_drv_data,
 		reset_dwork.work);
-	
+
 	if (data->firmware_update_check != true) {
 		data->pdata->hw_reset();
 	}
@@ -1078,7 +1106,7 @@ static int __init synaptics_ts_probe(struct i2c_client *client,
 	__set_bit(INPUT_PROP_DIRECT, input->propbit);
 
 	atomic_set(&ddata->keypad_enable, 1);
-	
+
 #if defined(CONFIG_TOUCHSCREEN_SYNAPTICS_S7301_KEYLED)
 	if (pdata->led_event && atomic_read(&ddata->keypad_enable)) {
 		__set_bit(EV_LED, input->evbit);
@@ -1139,7 +1167,7 @@ static int __init synaptics_ts_probe(struct i2c_client *client,
 	INIT_DELAYED_WORK(&ddata->noti_dwork, synaptics_ts_noti_dwork);
 #endif
 	schedule_delayed_work(&ddata->init_dwork, HZ);
-	
+
 #if defined(CONFIG_TOUCHSCREEN_SYNAPTICS_S7301_WORKAROUND)
     pdata->hw_reset();
 //	INIT_DELAYED_WORK(&ddata->reset_dwork, synaptics_reset_ts_dwork);
@@ -1171,7 +1199,7 @@ static int synaptics_ts_remove(struct i2c_client *client)
 {
 	struct synaptics_drv_data *data = i2c_get_clientdata(client);
 
-	unregister_early_suspend(&data->early_suspend);
+	fb_unregister_client(&data->fb_notif);
 	free_irq(client->irq, data);
 	remove_tsp_sysfs(data);
 	input_unregister_device(data->input);
