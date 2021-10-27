@@ -16,8 +16,9 @@
 #ifndef __MXT_1664S_DEV_H
 #define __MXT_1664S_DEV_H
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_FB
+#include <linux/fb.h>
+#include <linux/notifier.h>
 #endif
 
 #define OBJECT_TABLE_ELEMENT_SIZE	6
@@ -232,8 +233,9 @@ struct mxt_data {
 	struct mxt_report_id_map *rid_map;
 	struct mxt_callbacks callbacks;
 	struct delayed_work resume_dwork;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend early_suspend;
+#ifdef CONFIG_FB
+	struct notifier_block fb_notif;
+	bool fb_suspended;
 #endif
 #if TSP_SEC_SYSFS
 	struct mxt_data_sysfs *sysfs_data;
