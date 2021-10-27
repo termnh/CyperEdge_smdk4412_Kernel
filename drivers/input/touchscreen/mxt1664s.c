@@ -26,8 +26,9 @@
 #include <asm/unaligned.h>
 #include <linux/firmware.h>
 #include <linux/string.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
+#ifdef CONFIG_FB
+#include <linux/fb.h>
+#include <linux/notifier.h>
 #endif
 
 #include "mxt1664s_dev.h"
@@ -1304,14 +1305,14 @@ static void late_resume_dwork(struct work_struct *work)
 	enable_irq(data->client->irq);
 }
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_FB
 #define mxt_suspend	NULL
 #define mxt_resume	NULL
 
-static void mxt_early_suspend(struct early_suspend *h)
+static void mxt_fb_suspend(struct mxt_data *data)
 {
-	struct mxt_data *data = container_of(h, struct mxt_data,
-								early_suspend);
+	if (data->fb_suspended)
+        		return;
 #if TSP_INFORM_CHARGER
 	cancel_delayed_work_sync(&data->noti_dwork);
 #endif
@@ -1326,14 +1327,15 @@ static void mxt_early_suspend(struct early_suspend *h)
 		dev_err(&data->client->dev,
 			"%s. but touch already off\n", __func__);
 	}
-
+    data->fb_suspended = true;
 	mutex_unlock(&data->lock);
+
 }
 
-static void mxt_late_resume(struct early_suspend *h)
+static void mxt_fb_resume(struct mxt_data *data)
 {
-	struct mxt_data *data = container_of(h, struct mxt_data,
-								early_suspend);
+	if (!data->fb_suspended)
+            		return;
 
 	mutex_lock(&data->lock);
 
@@ -1346,9 +1348,36 @@ static void mxt_late_resume(struct early_suspend *h)
 		schedule_delayed_work(&data->resume_dwork,
 			msecs_to_jiffies(MXT_1664S_HW_RESET_TIME));
 	}
-
+    data->fb_suspended = false;
 	mutex_unlock(&data->lock);
 }
+
+static int fb_notifier_callback(struct notifier_block *self,
+				unsigned long event, void *data)
+{
+	struct fb_event *evdata = data;
+	int *blank;
+	struct mxt_data *info = container_of(self, struct mxt_data, fb_notif);
+ 	if (evdata && evdata->data && info) {
+		if (event == FB_EVENT_BLANK) {
+			blank = evdata->data;
+			switch (*blank) {
+				case FB_BLANK_UNBLANK:
+				case FB_BLANK_NORMAL:
+				case FB_BLANK_VSYNC_SUSPEND:
+				case FB_BLANK_HSYNC_SUSPEND:
+					mxt_fb_resume(info);
+					break;
+				default:
+				case FB_BLANK_POWERDOWN:
+					mxt_fb_suspend(info);
+					break;
+			}
+		}
+	}
+ 	return 0;
+}
+
 #else
 static int mxt_suspend(struct device *dev)
 {
@@ -1702,11 +1731,10 @@ static int __devinit mxt_probe(struct i2c_client *client,
 		dev_err(&client->dev, "Failed register irq\n");
 		goto err_free_mem;
 	}
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	data->early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB + 1;
-	data->early_suspend.suspend = mxt_early_suspend;
-	data->early_suspend.resume = mxt_late_resume;
-	register_early_suspend(&data->early_suspend);
+#ifdef CONFIG_FB
+	data->fb_suspended = false;
+	data->fb_notif.notifier_call = fb_notifier_callback;
+	fb_register_client(&data->fb_notif);
 #endif
 
 	ret = mxt_sysfs_init(client);
@@ -1747,8 +1775,8 @@ static int __devexit mxt_remove(struct i2c_client *client)
 {
 	struct mxt_data *data = i2c_get_clientdata(client);
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&data->early_suspend);
+#ifdef CONFIG_FB
+	fb_unregister_client(&data->fb_notif);
 #endif
 	free_irq(client->irq, data);
 #if TSP_INFORM_CHARGER
