@@ -6,7 +6,8 @@
 #include <linux/tty.h>
 #include <linux/tty_driver.h>
 #include <linux/tty_flip.h>
-#include <linux/earlysuspend.h>
+#include <linux/fb.h>
+#include <linux/notifier.h>
 #include <linux/vmalloc.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -56,8 +57,9 @@ struct sec_keyboard_drvdata {
 	struct sec_keyboard_callbacks callbacks;
 	struct serio *serio;
 	struct serio_driver serio_driver;
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	struct early_suspend early_suspend;
+#ifdef CONFIG_FB
+	struct notifier_block fb_notif;
+	bool fb_suspended;
 #endif
 	void	(*acc_power)(u8 token, bool active);
 	void (*check_uart_path)(bool en);
