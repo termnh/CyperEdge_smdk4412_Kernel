@@ -31,7 +31,8 @@
 #include <linux/workqueue.h>
 #include <linux/device.h>
 #include <linux/ir_remote_con_mc96.h>
-#include <linux/earlysuspend.h>
+#include <linux/fb.h>
+#include <linux/notifier.h>
 #include "irda_fw.h"
 #include <mach/gpio-rev00-p4notepq.h>
 
@@ -45,7 +46,10 @@ struct ir_remocon_data {
 	struct mutex			mutex;
 	struct i2c_client		*client;
 	struct mc96_platform_data	*pdata;
-	struct early_suspend		early_suspend;
+#ifdef CONFIG_FB
+	struct notifier_block fb_notif;
+	bool fb_suspended;
+#endif
 	char signal[MAX_SIZE];
 	int length;
 	int count;
@@ -55,9 +59,11 @@ struct ir_remocon_data {
 	int on_off;
 };
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void ir_remocon_early_suspend(struct early_suspend *h);
-static void ir_remocon_late_resume(struct early_suspend *h);
+#ifdef CONFIG_FB
+static void ir_remocon_fb_suspend(struct ir_remocon_data *data);
+static void ir_remocon_fb_resume(struct ir_remocon_data *data);
+static int fb_notifier_callback(struct notifier_block *self,
+				unsigned long event, void *data);
 #endif
 
 static int count_number;
@@ -503,11 +509,10 @@ static int __devinit ir_remocon_probe(struct i2c_client *client,
 		pr_err("Failed to create device file(%s)!\n",
 				dev_attr_check_ir.attr.name);
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	data->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	data->early_suspend.suspend = ir_remocon_early_suspend;
-	data->early_suspend.resume = ir_remocon_late_resume;
-	register_early_suspend(&data->early_suspend);
+#ifdef CONFIG_FB
+	data->fb_suspended = false;
+	data->fb_notif.notifier_call = fb_notifier_callback;
+	fb_register_client(&data->fb_notif);
 #endif
 
 	return 0;
@@ -517,7 +522,7 @@ err_free_mem:
 	return error;
 }
 
-#if defined(CONFIG_PM) || defined(CONFIG_HAS_EARLYSUSPEND)
+#if defined(CONFIG_PM) || defined(CONFIG_FB)
 static int ir_remocon_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -536,23 +541,52 @@ static int ir_remocon_resume(struct device *dev)
 }
 #endif
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void ir_remocon_early_suspend(struct early_suspend *h)
+#ifdef CONFIG_FB
+static void ir_remocon_fb_suspend(struct ir_remocon_data *data)
 {
-	struct ir_remocon_data *data;
-	data = container_of(h, struct ir_remocon_data, early_suspend);
+	if (data->fb_suspended)
+            		return;
 	ir_remocon_suspend(&data->client->dev);
+
+	data->fb_suspended = true;
 }
 
-static void ir_remocon_late_resume(struct early_suspend *h)
+static void ir_remocon_fb_resume(struct ir_remocon_data *data)
 {
-	struct ir_remocon_data *data;
-	data = container_of(h, struct ir_remocon_data, early_suspend);
+	if (!data->fb_suspended)
+                		return;
 	ir_remocon_resume(&data->client->dev);
+
+	data->fb_suspended = false;
+}
+static int fb_notifier_callback(struct notifier_block *self,
+				unsigned long event, void *data)
+{
+	struct fb_event *evdata = data;
+	int *blank;
+	struct ir_remocon_data *info = container_of(self, struct ir_remocon_data, fb_notif);
+ 	if (evdata && evdata->data && info) {
+		if (event == FB_EVENT_BLANK) {
+			blank = evdata->data;
+			switch (*blank) {
+				case FB_BLANK_UNBLANK:
+				case FB_BLANK_NORMAL:
+				case FB_BLANK_VSYNC_SUSPEND:
+				case FB_BLANK_HSYNC_SUSPEND:
+					ir_remocon_fb_resume(info);
+					break;
+				default:
+				case FB_BLANK_POWERDOWN:
+					ir_remocon_fb_suspend(info);
+					break;
+			}
+		}
+	}
+ 	return 0;
 }
 #endif
 
-#if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND)
+#if defined(CONFIG_PM) && !defined(CONFIG_FB)
 static const struct dev_pm_ops ir_remocon_pm_ops = {
 	.suspend	= ir_remocon_suspend,
 	.resume	= ir_remocon_resume,
@@ -581,7 +615,7 @@ static struct i2c_driver mc96_i2c_driver = {
 	},
 	.probe = ir_remocon_probe,
 	.remove = __devexit_p(ir_remocon_remove),
-#if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND)
+#if defined(CONFIG_PM) && !defined(CONFIG_FB)
 	.pm	= &ir_remocon_pm_ops,
 #endif
 
