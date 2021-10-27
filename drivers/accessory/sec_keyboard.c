@@ -323,12 +323,12 @@ static void sec_keyboard_disconnect(struct serio *serio)
 	serio_close(serio);
 }
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void keyboard_early_suspend(struct early_suspend *early_sus)
+#ifdef CONFIG_FB
+static void keyboard_fb_suspend(struct sec_keyboard_drvdata *data)
 {
-	struct sec_keyboard_drvdata *data = container_of(early_sus,
-		struct sec_keyboard_drvdata, early_suspend);
 
+    if (data->fb_suspended)
+    		return;
 	if (data->kl != UNKOWN_KEYLAYOUT) {
 		/*
 		if the command of the caps lock off is needed,
@@ -340,18 +340,47 @@ static void keyboard_early_suspend(struct early_suspend *early_sus)
 		if (data->univ_kbd_dock == false)
 			sec_keyboard_tx(data, 0x10);	/* the idle mode */
 	}
+	data->fb_suspended = true;
 }
 
-static void keyboard_late_resume(struct early_suspend *early_sus)
+static void keyboard_fb_resume(struct sec_keyboard_drvdata *data)
 {
-	struct sec_keyboard_drvdata *data = container_of(early_sus,
-		struct sec_keyboard_drvdata, early_suspend);
+		if (!data->fb_suspended)
+    		return;
 
 	if (data->kl != UNKOWN_KEYLAYOUT)
 		printk(KERN_DEBUG "[Keyboard] %s\n", __func__);
 
+    data->fb_suspended = false;
 }
-#endif
+
+static int fb_notifier_callback(struct notifier_block *self,
+				unsigned long event, void *data)
+{
+	struct fb_event *evdata = data;
+	int *blank;
+	struct sec_keyboard_drvdata *info = container_of(self, struct sec_keyboard_drvdata, fb_notif);
+ 	if (evdata && evdata->data && info) {
+		if (event == FB_EVENT_BLANK) {
+			blank = evdata->data;
+			switch (*blank) {
+				case FB_BLANK_UNBLANK:
+				case FB_BLANK_NORMAL:
+				case FB_BLANK_VSYNC_SUSPEND:
+				case FB_BLANK_HSYNC_SUSPEND:
+					keyboard_fb_resume(info);
+					break;
+				default:
+				case FB_BLANK_POWERDOWN:
+					keyboard_fb_suspend(info);
+					break;
+			}
+		}
+	}
+ 	return 0;
+}
+#endif /* CONFIG_FB */
+
 static int __devinit sec_keyboard_probe(struct platform_device *pdev)
 {
 	struct sec_keyboard_platform_data *pdata = pdev->dev.platform_data;
@@ -447,12 +476,11 @@ static int __devinit sec_keyboard_probe(struct platform_device *pdev)
 		goto err_reg_serio;
 	}
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	ddata->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
-	ddata->early_suspend.suspend = keyboard_early_suspend;
-	ddata->early_suspend.resume = keyboard_late_resume;
-	register_early_suspend(&ddata->early_suspend);
-#endif	/* CONFIG_HAS_EARLYSUSPEND */
+#ifdef CONFIG_FB
+	ddata->fb_suspended = false;
+	ddata->fb_notif.notifier_call = fb_notifier_callback;
+	fb_register_client(&ddata->fb_notif);
+#endif
 
 	ddata->keyboard_dev = device_create(sec_class, NULL, 0,
 		ddata, "sec_keyboard");
@@ -471,9 +499,10 @@ static int __devinit sec_keyboard_probe(struct platform_device *pdev)
 	return 0;
 
 err_sysfs_create_group:
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	unregister_early_suspend(&ddata->early_suspend);
+#ifdef CONFIG_FB
+	fb_unregister_client(&ddata->fb_notif);
 #endif
+
 	serio_unregister_driver(&ddata->serio_driver);
 err_reg_serio:
 err_input_allocate_device:
@@ -495,7 +524,7 @@ static int __devexit sec_keyboard_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifndef CONFIG_HAS_EARLYSUSPEND
+#ifndef CONFIG_FB
 static int sec_keyboard_suspend(struct platform_device *pdev,
 			pm_message_t state)
 {
@@ -523,7 +552,7 @@ static int sec_keyboard_resume(struct platform_device *pdev)
 static struct platform_driver sec_keyboard_driver = {
 	.probe = sec_keyboard_probe,
 	.remove = __devexit_p(sec_keyboard_remove),
-#ifndef CONFIG_HAS_EARLYSUSPEND
+#ifndef CONFIG_FB
 	.suspend = sec_keyboard_suspend,
 	.resume	= sec_keyboard_resume,
 #endif
