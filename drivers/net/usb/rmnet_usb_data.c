@@ -688,7 +688,7 @@ static struct usb_driver rmnet_usb = {
 	.supports_autosuspend = true,
 };
 
-int rmnet_usb_init(void)
+static int rmnet_usb_init(void)
 {
 	int	retval;
 
@@ -709,7 +709,7 @@ int rmnet_usb_init(void)
 }
 //module_init(rmnet_usb_init);
 
-void rmnet_usb_exit(void)
+static void rmnet_usb_exit(void)
 {
 	rmnet_usb_ctrl_exit();
 	usb_deregister(&rmnet_usb);

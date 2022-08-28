@@ -1573,7 +1573,7 @@ EXPORT_SYMBOL_GPL(usbnet_resume);
 extern int rmnet_usb_init(void);
 extern void rmnet_usb_exit(void);
 
-int usbnet_init(void)
+static int usbnet_init(void)
 {
 	/* Compiler should optimize this out. */
 	BUILD_BUG_ON(
@@ -1584,7 +1584,7 @@ int usbnet_init(void)
 	return 0;
 }
 
-void usbnet_exit(void)
+static void usbnet_exit(void)
 {
 	rmnet_usb_exit();
 }
