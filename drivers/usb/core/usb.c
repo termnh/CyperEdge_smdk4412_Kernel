@@ -1060,7 +1060,7 @@ bus_notifier_failed:
 bus_register_failed:
 	usb_debugfs_cleanup();
 out:
-#ifdef CONFIG_USB_USBNET
+#ifdef CONFIG_MSM_RMNET_USB
 	usbnet_init();
 #endif
 	return retval;
@@ -1075,7 +1075,7 @@ static void __exit usb_exit(void)
 	if (nousb)
 		return;
 
-#ifdef CONFIG_USB_USBNET
+#ifdef CONFIG_MSM_RMNET_USB
 	usbnet_exit();
 #endif
 
