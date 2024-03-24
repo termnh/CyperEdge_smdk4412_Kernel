@@ -1,18 +1,18 @@
 #!/bin/bash
 
 VERSION=0.5
-DEFCONFIG=lineageos_i9300_defconfig
+DEFCONFIG=CyperEdge_n7100_defconfig
 TOOLCHAIN=/home/admin/Schreibtisch/Kernel/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-
 KCONFIG=false
 CUST_CONF=no
 BUILD_NUMBER=
-DEVICE=UNKNOWN
+DEVICE=t03g_n7100
 KCONF_REPLACE=false
-KERNEL_NAME="html6405_kernel"
-KERNEL_VERSION="r1.0"
+KERNEL_NAME="CyperEdge"
+KERNEL_VERSION="cE1.0"
 SKIP_MODULES=true
 DONTPACK=false
-USER=$USER
+USER=termnh
 DATE=`date`
 SOURCE_PATH=`pwd`
 BUILD_PATH=$SOURCE_PATH/../obj/
